@@ -1,4 +1,4 @@
-import pygame, os
+import pygame, json, os, math
 from prettytable import PrettyTable
 
 # ------------------------------/ Config /------------------------------
@@ -28,12 +28,6 @@ class Window():
     def draw(self, surface:pygame.Surface, pos:tuple=(0, 0)):
         self.surface.blit(surface, pos)
 
-# ------------------------------/ Tile /--------------------------------
-class Tile():
-    def __init__(self, image, pos):
-        self.surface = image
-        self.position = pos
-
 # -----------------------------/ Sprite /-------------------------------
 class Sprite():
     def __init__(self):
@@ -44,77 +38,41 @@ class Sprite():
         elif path[0] != '.': path = self.sprite_folder + '/' + path
         return pygame.image.load(path)
     
-    def tolist(self, surface:pygame.Surface, size:tuple) -> list[Tile]:
-        _list = []
-        sprite_width, sprite_height = surface.get_size()
-        
-        for y in range(0, sprite_height, 16):
-            for x in range(0, sprite_width, 16):
-                _list.append(Sprite().toTile(surface, size, (x, y), (0, 0)))
-                                
-        return _list
-
-    def toTile(self, surface:pygame.Surface, size:tuple, pos_image:tuple, pos_screen:tuple) -> Tile:
-        image = pygame.Surface(size)
-        image.blit(surface, (0, 0), (*pos_image, *size))
-        return Tile(image, pos_screen)
-
 # -------------------------------/ Map /--------------------------------
 class Map():
-    def __init__(self, map_paths:list[str], spritesheet_paths:list[str], sprite_sizes:list[tuple], background_paths:list[str]=None) -> None:
-        self.world = World()
-        default_sprite_size = sprite_sizes[0]
-        default_spritesheet_path = spritesheet_paths[0]
+    def __init__(self, map_path:str) -> None:
+        level = dict(World().Read(map_path))
 
-        max_length = max([len(map_paths), len(spritesheet_paths), len(sprite_sizes)])
+        self.layers_surface = [Sprite().load(background) for background in level['background']]
 
-        if len(spritesheet_paths) == 1:
-            spritesheet_paths = [default_spritesheet_path for _ in range(max_length)]
-        if len(sprite_sizes) == 1:
-            sprite_sizes = [default_sprite_size for _ in range(max_length)]
+        layers_name = list(level['layers'].keys())
+        for layer in layers_name:
+            sprite_size = (level['layers'][layer]['size']['width'], level['layers'][layer]['size']['height'])
+            spritesheet = Sprite().load(level['layers'][layer]['spritesheet_path'])
+            img_width, img_height = spritesheet.get_size()
+            nb_row, nb_col = (img_width//sprite_size[0], img_height//sprite_size[1])
+            data = level['layers'][layer]['data']
 
-        self.infos = zip(map_paths, spritesheet_paths, sprite_sizes)
-
-        self.surfaces = [Sprite().load(bg) for bg in background_paths] if background_paths else []
-
-    def load(self):
-        sprite = Sprite()
-
-        for info in self.infos:
-            tiles = sprite.tolist(sprite.load(info[1]), info[2])
-            world = self.world.Read(info[0])
-            surface = pygame.Surface((len(world[0]) * info[2][0], len(world) * info[2][1]))
+            surface = pygame.Surface((len(data[0]) * sprite_size[0], len(data) * sprite_size[1]))
             surface.set_colorkey((0, 0, 0))
 
-            for y, row in enumerate(world):
-                for x, index in enumerate(row):
-                    if index:
-                        surface.blit(tiles[index].surface, (x*info[2][0], y*info[2][1]))
-
-            self.surfaces.append(surface)
+            for y, line in enumerate(data):
+                for x, index in enumerate(line):
+                    if index != -1:
+                        sprite_pos = ((index%nb_row) * sprite_size[0], (index//nb_row) * sprite_size[1])
+                        surface.blit(spritesheet, (x*sprite_size[0], y*sprite_size[1]), (*sprite_pos, *sprite_size))
+            
+            self.layers_surface.append(surface)
 
 # ------------------------------/ World /-------------------------------
 class World():
     def __init__(self) -> None:
         self.maps_folder = './maps'
 
-    def Read(self, path:str) -> list:
-        current_file_path = self.maps_folder + '/' + path
-        
-        tab = []
+    def Read(self, path:str) -> json:
+        with open(os.path.join(self.maps_folder, path), 'r') as f:
+            return json.loads(f.read())
 
-        with open(current_file_path, 'r') as map:
-            for line in map.readlines():
-                l = []
-
-                for value in line.rstrip().split():
-                    if value == '-1': l.append(None)
-                    else: l.append(int(value))
-                
-                tab.append(l)
-        
-        return tab
-    
     def Write(self, path:str, pos:tuple, value:int) -> None:
         current_file_path = self.maps_folder + '/' + path
         data = []
@@ -145,20 +103,9 @@ class World():
 
                 y += lenght
 
-    def Create(self, size:tuple=(WIDTH//16, HEIGHT//16)) -> None:
-        index = len(os.listdir(self.maps_folder)) + 1
-
-        f = open(f'./maps/map-{index}', 'a')
-
-        for h in range(size[1]):
-            for w in range(size[0]):
-                if w == size[0]-1:f.write('-1')
-                else: f.write('-1 ')
-
-            if h != size[1]-1: f.write('\n')
-
-        f.close()
-
+    def Create(self, name:str) -> None:
+        with open(f'{self.maps_folder}/{name}', 'w') as f:
+            f.write('{ "layers": { } }')
 
 # ------------------------------/ Main /--------------------------------
 window = Window()
@@ -166,21 +113,12 @@ window = Window()
 background = pygame.Surface((WIDTH, HEIGHT))
 background.fill(pygame.Color("#000000"))
 
-# Map
-map = Map(
-    ['cave1-backward2', 'cave1-backward', 'cave1-platform', 'cave1-forward'], # map files
-    ['/mainlev_build.png'], # spritesheet
-    [(16, 16)], # sprite size
-    ['/background1.png', '/background2.png', '/background3.png', '/background4a.png'] # backrounds
-) 
-map.load()
-
-print(map.surfaces)
+map = Map("cave1")
 
 while window.is_running:
     window.update()
 
     window.draw(background)
 
-    for surface in map.surfaces:
+    for surface in map.layers_surface:
         window.draw(surface)
