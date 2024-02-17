@@ -1,1 +1,3 @@
-![alt text](https://github.com/TheChaosStar/RPGGame/tree/devop/sprites/image.png?raw=true)
+![screenshot game][def]
+
+[def]: https://github.com/TheChaosStar/RPGGame/blob/devop/sprites/image.png
